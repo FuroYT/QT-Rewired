@@ -17,6 +17,7 @@ import flixel.tweens.FlxEase;
 import flixel.util.FlxColor;
 import flixel.math.FlxRect;
 import StringTools;
+import EReg;
 
 class AwesomeSubtitles extends Module
 {
@@ -629,6 +630,8 @@ class AwesomeSubtitles extends Module
     var currentDuration:Float = 0;
     var hasTiming:Bool = false;
 
+    var openTags:Array<String> = [];
+
     var richBuffer:String = "";
     var segmentStart:Int = 0;
 
@@ -638,14 +641,14 @@ class AwesomeSubtitles extends Module
       var durationToken:String = token.matched(1);
       var waitToken:String = token.matched(2);
 
-      var before:String = source.substring(lastPos, pos.pos);
-      richBuffer += before;
+      richBuffer += source.substring(lastPos, pos.pos);
 
       if (waitToken != null)
       {
         if (richBuffer.length > 0)
         {
-          var rich:Dynamic = parseRichText(richBuffer);
+          var wrapped:String = wrapWithOpenTags(richBuffer, openTags);
+          var rich:Dynamic = parseRichText(wrapped);
           var start:Int = plain.length;
 
           plain += rich.text;
@@ -685,7 +688,8 @@ class AwesomeSubtitles extends Module
       {
         if (hasTiming || richBuffer.length > 0)
         {
-          var rich:Dynamic = parseRichText(richBuffer);
+          var wrapped:String = wrapWithOpenTags(richBuffer, openTags);
+          var rich:Dynamic = parseRichText(wrapped);
           var start:Int = plain.length;
 
           plain += rich.text;
@@ -713,10 +717,11 @@ class AwesomeSubtitles extends Module
           richBuffer = "";
         }
 
-        currentDuration =
-          Std.parseFloat(durationToken.substr(0, durationToken.length - 1)) * 1000;
+        currentDuration = Std.parseFloat(durationToken.substr(0, durationToken.length - 1)) * 1000;
         hasTiming = true;
       }
+
+      updateOpenTags(source.substring(lastPos, pos.pos), openTags);
 
       lastPos = pos.pos + pos.len;
       searchPos = lastPos;
@@ -726,7 +731,8 @@ class AwesomeSubtitles extends Module
 
     if (richBuffer.length > 0)
     {
-      var rich:Dynamic = parseRichText(richBuffer);
+      var wrapped:String = wrapWithOpenTags(richBuffer, openTags);
+      var rich:Dynamic = parseRichText(wrapped);
       var start:Int = plain.length;
 
       plain += rich.text;
@@ -773,6 +779,61 @@ class AwesomeSubtitles extends Module
       font: font,
       segments: segments
     };
+  }
+
+  function updateOpenTags(fragment:String, openTags:Array<String>):Void
+  {
+    var tagRegex:EReg = new EReg("<(/?)([a-zA-Z]+)([^>]*)>", "g");
+    var pos:Int = 0;
+
+    while (pos < fragment.length && tagRegex.matchSub(fragment, pos))
+    {
+      var matchedPos:Dynamic = tagRegex.matchedPos();
+      var closing:String = tagRegex.matched(1);
+      var name:String = tagRegex.matched(2).toLowerCase();
+      var attributes:String = tagRegex.matched(3);
+      var fullTag:String = tagRegex.matched(0);
+
+      if (FORMAT_TAGS.indexOf(name) != -1)
+      {
+        if (closing == "/")
+        {
+          for (i in 0...openTags.length)
+          {
+            if (openTags[i].split(" ")[0].toLowerCase() == name)
+            {
+              openTags.splice(i, openTags.length - i);
+              break;
+            }
+          }
+        }
+        else if (!StringTools.endsWith(StringTools.trim(fullTag), "/>"))
+        {
+          openTags.push(name + attributes);
+        }
+      }
+
+      pos = matchedPos.pos + matchedPos.len;
+    }
+  }
+
+  function wrapWithOpenTags(fragment:String, openTags:Array<String>):String
+  {
+    var result:String = "";
+
+    for (tag in openTags)
+      result += "<" + tag + ">";
+
+    result += fragment;
+
+    for (i in 0...openTags.length)
+    {
+      var tag:String = openTags[openTags.length - 1 - i];
+      var name:String = tag.split(" ")[0].toLowerCase();
+      result += "</" + name + ">";
+    }
+
+    return result;
   }
 
   function parseRichText(source:String):Dynamic
